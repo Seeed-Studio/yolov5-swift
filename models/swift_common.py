@@ -45,7 +45,7 @@ class ShuffleNetV2(nn.Module):
         assert (self.stride != 1) or (c1 == branch_features << 1)
 
         if self.stride > 1:
-            self.cv1 = Conv(c1, c1, 3, self.stride, act=nn.ReLU(True), g=c1)
+            self.cv1 = Conv(c1, c1, 3, self.stride, p=1,act=nn.ReLU(True), g=c1)
             self.cv2 = Conv(c1, branch_features, 1, 1)
         else:
             self.cv1 = nn.Sequential()
@@ -66,3 +66,45 @@ class ShuffleNetV2(nn.Module):
         out = channel_shuffle(out, 2)
 
         return out
+
+
+
+class Shuffle_repeats(nn.Module):
+    def __init__(self,c1,c2,s=1,repeas=3):
+        super(Shuffle_repeats, self).__init__()
+        seq=[]
+        for i in range(repeas):
+            seq.append(ShuffleNetV2(c1,c2,s))
+            c1=c2
+            s=1
+        self.m=nn.Sequential(*seq)
+
+    def forward(self,x):
+        return self.m(x)
+
+class Star(nn.Module):
+    def __init__(self):
+        super(Star).__init__()
+        self.m=nn.Identity()
+
+    def forward(self,x):
+        return self.m(x)
+
+
+class End(nn.Module):
+    def __init__(self):
+        super(End).__init__()
+        self.m = nn.Identity()
+
+    def forward(self, x):
+        return self.m(x)
+
+
+class Pool(nn.Module):
+    # MaxPool2d operation
+    def __init__(self, k=3,s=2,p=1):
+        super().__init__()
+        self.m = nn.MaxPool2d(kernel_size=k, stride=s, padding=p)
+
+    def forward(self, x):
+        return self.m(x)
