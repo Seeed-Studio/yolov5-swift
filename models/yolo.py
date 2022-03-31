@@ -20,6 +20,7 @@ if str(ROOT) not in sys.path:
 from models.swift_common import *
 from models.common import *
 from models.experimental import *
+from models.Ghost_Fpn import GhostBlocks,DepthwiseConvModule,SimpleConvHead
 from utils.autoanchor import check_anchor_order
 from utils.general import LOGGER, check_version, check_yaml, make_divisible, print_args
 from utils.plots import feature_visualization
@@ -104,6 +105,7 @@ class Model(nn.Module):
         self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
         self.inplace = self.yaml.get('inplace', True)
+        self.epoch = 0
 
         # Build strides, anchors
         m = self.model[-1]  # Detect()
@@ -155,6 +157,34 @@ class Model(nn.Module):
             if visualize:
                 feature_visualization(x, m.type, m.i, save_dir=visualize)
         return x
+
+    def _forward_nano(self,x, profile=False, visualize=False):
+        y, dt = [], []  # outputs
+        for m in self.model:
+            if m.f != -1:  # if not from previous layer
+                x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
+            if profile:
+                self._profile_one_layer(m, x, dt)
+
+            if self.epoch > 10 and hasattr(m,'Star'):
+                y = m([j.detach() for j in x])
+                x = (
+                    torch.cat([f.detach(), aux_f], dim=1) for f, aux_f in zip(x, y)
+                )
+            elif self.epoch <10 and hasattr(m,'Star'):
+                y = m([x])
+                x = (
+                    torch.cat([f, aux_f], dim=1) for f, aux_f in zip(x, y)
+                )
+            else:
+                x = m(x)  # run
+            y.append(x if m.i in self.save else None)  # save output
+            if visualize:
+                feature_visualization(x, m.type, m.i, save_dir=visualize)
+        return x
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
 
     def _descale_pred(self, p, flips, scale, img_size):
         # de-scale predictions following augmented inference (inverse operation)
@@ -261,15 +291,32 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
         n = n_ = max(round(n * gd), 1) if n > 1 else n  # depth gain
         if m in [Conv, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, MixConv2d, Focus, CrossConv,
-                 BottleneckCSP, C3, C3TR, C3SPP, C3Ghost, BMConv, ShuffleNetV2]:
-            c1, c2 = ch[f], args[0]
-            if c2 != no:  # if not output
-                c2 = make_divisible(c2 * gw, 8)
+                 BottleneckCSP, C3, C3TR, C3SPP, C3Ghost, BMConv, ShuffleNetV2,Add,Shuffle_repeats,GhostBlocks,DepthwiseConvModule,SimpleConvHead]:
+            if m is Add:
+                c1, c2 = ch[f[0]], args[0]
+            else:
+                c1, c2 = ch[f], args[0]
+            # if c2 != no and m not in []:  # if not output
+            #     c2 = make_divisible(c2 * gw, 8)
 
             args = [c1, c2, *args[1:]]
             if m in [BottleneckCSP, C3, C3TR, C3Ghost]:
                 args.insert(2, n)  # number of repeats
                 n = 1
+        elif m is End:            # deepcopy fpn
+            aux=[]
+            for i,mm in enumerate(layers):
+                if isinstance(mm,Star):
+                    f=mm.f                      # get input
+                    aux.append(deepcopy(mm))
+                if isinstance(mm,End):
+                    break
+            m_=nn.Sequential(*aux)
+            t = str(m)[8:-2].replace('__main__.', '')  # module type
+            np = sum(x.numel() for x in m_.parameters())  # number params
+            m_.i, m_.f, m_.type, m_.np = i, f, t, np  # attach index, 'from' index, type, number params
+            layers.append(m_)
+            continue
         elif m is nn.BatchNorm2d:
             args = [ch[f]]
         elif m is Concat:
