@@ -28,6 +28,16 @@ from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import copy_attr, time_sync
 
 
+class Add(nn.Module):
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1):
+        super().__init__()
+        self.m1 = nn.Sequential(Conv(c1,c2,k,s,k//2,g=c1),Conv(c1, c2, 1, 1, p, g))
+        self.m2 = nn.Sequential(Conv(c1,c2,k,s,k//2,g=c1),Conv(c1, c2, 1, 1, p, g))
+
+    def forward(self, x):
+        return self.m1(x[0]) + self.m2(x[1])
+
+
 def autopad(k, p=None):  # kernel, padding
     # Pad to 'same'
     if p is None:
