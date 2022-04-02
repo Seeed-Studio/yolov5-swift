@@ -24,6 +24,7 @@ import torch.nn.functional as F
 import yaml
 from PIL import ExifTags, Image, ImageOps
 from torch.utils.data import DataLoader, Dataset, dataloader, distributed
+from torchvision.transforms.transforms import Compose, Normalize
 from tqdm import tqdm
 
 from utils.augmentations import Albumentations, augment_hsv, copy_paste, letterbox, mixup, random_perspective
@@ -391,6 +392,8 @@ class LoadImagesAndLabels(Dataset):
         self.stride = stride
         self.path = path
         self.albumentations = Albumentations() if augment else None
+        if 'normalize' in hyp.keys():
+            self.trans = Compose([Normalize(self.hyp['normalize'][0], self.hyp['normalize'][1])])
 
         try:
             f = []  # image files
@@ -618,7 +621,13 @@ class LoadImagesAndLabels(Dataset):
         img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         img = np.ascontiguousarray(img)
 
-        return torch.from_numpy(img), labels_out, self.im_files[index], shapes
+        # normalize
+        if hasattr(self, 'trans'):
+            img = getattr(self,'trans')(torch.from_numpy(img / 255))
+        else:
+            img = torch.from_numpy(img)
+
+        return img, labels_out, self.im_files[index], shapes
 
     def load_image(self, i):
         # Loads 1 image from dataset index 'i', returns (im, original hw, resized hw)
