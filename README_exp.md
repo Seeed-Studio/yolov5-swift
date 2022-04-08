@@ -56,7 +56,7 @@ test_pipeline=[
 ```
 
 
-###3.数据集加载配置
+### 3.数据集加载配置
 ```pytohn
 train_dataset={
     type=数据集加载类名
@@ -67,7 +67,7 @@ train_dataset={
     }
 }
 ```
-###4.数据加载器配置
+### 4.数据加载器配置
 ```python
 data={
     batch-size=每次加载数据量
@@ -78,7 +78,7 @@ data={
     test=测试数据增广配置
 }
 ```
-###5.优化器配置
+### 5.优化器配置
 ```python
 optimizer={
     type=优化器类名
@@ -86,7 +86,7 @@ optimizer={
 }
 ```
 
-###6.学习率配置
+### 6.学习率配置
 ```python
 lr_config={
     Policy=学习率策略
@@ -95,8 +95,8 @@ lr_config={
     warmup_ratio=预热阶段学习率
 }
 ```
-##三、模型训练
-###1.训练参数
+## 三、模型训练
+### 1.训练参数
 -  config：配置文件路径
 -  work-dir：模型权重和训练日志保存位置
 - resume-from：需要继续训练的模型权重文件路径
@@ -108,7 +108,7 @@ lr_config={
 - launcher：是否使用分布式训练，如果用用何种框架
 - local_rank：本机节点的优先级
 
-###2.初始化流程
+### 2.初始化流程
 1) 读取配置文件		>>>  config
 2) 进程数设置			>>> \_base_:0
 3) 建立工作文件 		>>> work-dir
