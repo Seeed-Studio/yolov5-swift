@@ -227,7 +227,7 @@ class LoadImages:
         # Convert
         img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         # yuv color space
-        if img.shape[1] != img.shape[2]:
+        if img.shape[1] == img.shape[2]*2:
             img = np.zeros(shape=(4, *self.img_size), dtype=np.int8)
         img = np.ascontiguousarray(img)
 
