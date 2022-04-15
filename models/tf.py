@@ -164,6 +164,8 @@ class TFConv(keras.layers.Layer):
             self.act = (lambda x: x * tf.nn.relu6(x + 3) * 0.166666667) if act else tf.identity
         elif isinstance(w.act, (nn.SiLU, SiLU)):
             self.act = (lambda x: keras.activations.swish(x)) if act else tf.identity
+        elif isinstance(w.act, nn.ReLU):
+            self.act = (lambda x: keras.activations.relu(x)) if act else tf.identity
         else:
             self.act = (lambda x: keras.activations.swish(x)) if act else tf.identity
 
@@ -408,7 +410,7 @@ def parse_model(d, ch, model, imgsz):  # model_dict, input_channels(3)
 class TFModel:
     def __init__(self, cfg='yolov5s.yaml', ch=3, nc=None, model=None, imgsz=(640, 640),nms_head=6):  # model, channels, classes
         super().__init__()
-        self.nms_head=nms_head
+        self.nms_head = nms_head
         if isinstance(cfg, dict):
             self.yaml = cfg  # model dict
         else:  # is *.yaml
@@ -423,8 +425,40 @@ class TFModel:
             self.yaml['nc'] = nc  # override yaml value
         self.model, self.savelist = parse_model(deepcopy(self.yaml), ch=[ch], model=model, imgsz=imgsz)
 
+    def yuv2rgb(self, img):
+        '''
+        :param img:
+        :return:im RGB color space
+        '''
+        w_2 = img.shape[2]
+
+        y1 = img[..., 0:1]
+        u = img[..., 1:2]
+        y2 = img[..., 2:3]
+        v = img[..., 3:4]
+
+        r1 = y1 + (1.4065 * (v - 128))
+        g1 = y1 - (0.3455 * (u - 128)) - (0.7169 * (v - 128))
+        b1 = y1 + (1.7790 * (u - 128))
+        rgb1 = tf.concat((r1, g1, b1), -1)
+
+        r2 = y2 + (1.4065 * (v - 128))
+        g2 = y2 - (0.3455 * (u - 128)) - (0.7169 * (v - 128))
+        b2 = y2 + (1.7790 * (u - 128))
+        rgb2 = tf.concat((r2, g2, b2), -1)
+        im = None
+        for i in range(w_2):
+            if i:
+                im = tf.concat((im, rgb1[:, :, i:i + 1, :], rgb2[:, :, i:i + 1, :]), 2)
+            else:
+                im = tf.concat((rgb1[:, :, i:i + 1, :], rgb2[:, :, i:i + 1, :]), 2)
+        return im
+
     def predict(self, inputs, tf_nms=False, agnostic_nms=False, topk_per_class=100, topk_all=100, iou_thres=0.45,
                 conf_thres=0.25):
+        if inputs.shape[-1] == 4:  # input image yuv color space
+            inputs = self.yuv2rgb(inputs)
+
         y = []  # outputs
         x = inputs
         for i, m in enumerate(self.model.layers):
@@ -434,7 +468,6 @@ class TFModel:
             x = m(x)  # run
             y.append(x if m.i in self.savelist else None)  # save output
 
-        # Add TensorFlow NMS
         # Add TensorFlow NMS
         if tf_nms:
             boxes = self._xywh2xyxy(x[0][..., :4])
@@ -448,10 +481,10 @@ class TFModel:
                 boxes = tf.expand_dims(boxes, 2)
                 nms = tf.image.combined_non_max_suppression(
                     boxes, scores, topk_per_class, topk_all, iou_thres, conf_thres, clip_boxes=False)
-                conden_ind=tf.expand_dims(nms[1],axis=2)
-                class_ind=tf.expand_dims(nms[2],axis=2)
-                mm=tf.concat((nms[0],conden_ind,class_ind),axis=2)
-                return mm[0][:self.nms_head,:]#, x[1]
+                conden_ind = tf.expand_dims(nms[1], axis=2)
+                class_ind = tf.expand_dims(nms[2], axis=2)
+                mm = tf.concat((nms[0], conden_ind, class_ind), axis=2)
+                return mm[0][:self.nms_head, :]  # , x[1]
 
         return x[0]  # output only first tensor [1,6300,85] = [xywh, conf, class0, class1, ...]
         # x = x[0][0]  # [x(1,6300,85), ...] to x(6300,85)
