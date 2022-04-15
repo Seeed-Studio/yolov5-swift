@@ -247,7 +247,7 @@ def export_engine(model, im, file, train, half, simplify, workspace=4, verbose=F
 
 def export_saved_model(model, im, file, dynamic,
                        tf_nms=False, agnostic_nms=False, topk_per_class=100, topk_all=100, iou_thres=0.45,
-                       conf_thres=0.25, keras=False, prefix=colorstr('TensorFlow SavedModel:'),nms_head=6):
+                       conf_thres=0.25, keras=False, prefix=colorstr('TensorFlow SavedModel:'), nms_head=6, yuv=False):
     # YOLOv5 TensorFlow SavedModel export
     try:
         import tensorflow as tf
@@ -258,8 +258,12 @@ def export_saved_model(model, im, file, dynamic,
         LOGGER.info(f'\n{prefix} starting export with tensorflow {tf.__version__}...')
         f = str(file).replace('.pt', '_saved_model')
         batch_size, ch, *imgsz = list(im.shape)  # BCHW
+        parse_imsize = imgsz
+        if yuv:
+            imgsz = (imgsz[0], imgsz[1] // 2)
+            ch = 4
 
-        tf_model = TFModel(cfg=model.yaml, model=model, nc=model.nc, imgsz=imgsz,nms_head=nms_head)
+        tf_model = TFModel(cfg=model.yaml, model=model, nc=model.nc, imgsz=parse_imsize, nms_head=nms_head)
         im = tf.zeros((batch_size, *imgsz, ch))  # BHWC order for TensorFlow
         _ = tf_model.predict(im, tf_nms, agnostic_nms, topk_per_class, topk_all, iou_thres, conf_thres)
         inputs = tf.keras.Input(shape=(*imgsz, ch), batch_size=None if dynamic else batch_size)
@@ -310,13 +314,15 @@ def export_pb(keras_model, im, file, prefix=colorstr('TensorFlow GraphDef:')):
         LOGGER.info(f'\n{prefix} export failure: {e}')
 
 
-def export_tflite(keras_model, im, file, int8, data, ncalib, prefix=colorstr('TensorFlow Lite:')):
+def export_tflite(keras_model, im, file, int8, data, ncalib, prefix=colorstr('TensorFlow Lite:'), yuv=False):
     # YOLOv5 TensorFlow Lite export
     try:
         import tensorflow as tf
 
         LOGGER.info(f'\n{prefix} starting export with tensorflow {tf.__version__}...')
         batch_size, ch, *imgsz = list(im.shape)  # BCHW
+        if yuv:
+            imgsz = (imgsz[0], imgsz[1] // 2)
         f = str(file).replace('.pt', '-fp16.tflite')
 
         converter = tf.lite.TFLiteConverter.from_keras_model(keras_model)
@@ -330,8 +336,8 @@ def export_tflite(keras_model, im, file, int8, data, ncalib, prefix=colorstr('Te
             converter.representative_dataset = lambda: representative_dataset_gen(dataset, ncalib)
             converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
             converter.target_spec.supported_types = []
-            converter.inference_input_type = tf.uint8  # or tf.int8
-            converter.inference_output_type = tf.uint8  # or tf.int8
+            converter.inference_input_type = tf.int8  # or tf.int8
+            converter.inference_output_type = tf.int8  # or tf.int8
             converter.experimental_new_quantizer = False
             f = str(file).replace('.pt', '-int8.tflite')
 
@@ -421,6 +427,7 @@ def run(data=ROOT / 'data/coco128.yaml',  # 'dataset.yaml path'
         train=False,  # model.train() mode
         optimize=False,  # TorchScript: optimize for mobile
         int8=False,  # CoreML/TF INT8 quantization
+        yuv=False,  # input Image color space
         dynamic=False,  # ONNX/TF: dynamic axes
         simplify=False,  # ONNX: simplify model
         opset=12,  # ONNX: opset version
@@ -498,11 +505,12 @@ def run(data=ROOT / 'data/coco128.yaml',  # 'dataset.yaml path'
         assert not (tflite and tfjs), 'TFLite and TF.js models must be exported separately, please pass only one type.'
         model, f[5] = export_saved_model(model, im, file, dynamic, tf_nms=nms or agnostic_nms or tfjs,
                                          agnostic_nms=agnostic_nms or tfjs, topk_per_class=topk_per_class,
-                                         topk_all=topk_all, conf_thres=conf_thres, iou_thres=iou_thres,nms_head=nms_head)  # keras model
+                                         topk_all=topk_all, conf_thres=conf_thres, iou_thres=iou_thres,
+                                         nms_head=nms_head, yuv=yuv)  # keras model
         if pb or tfjs:  # pb prerequisite to tfjs
             f[6] = export_pb(model, im, file)
         if tflite or edgetpu:
-            f[7] = export_tflite(model, im, file, int8=int8 or edgetpu, data=data, ncalib=100)
+            f[7] = export_tflite(model, im, file, int8=int8 or edgetpu, data=data, ncalib=100, yuv=yuv)
         if edgetpu:
             f[8] = export_edgetpu(model, im, file)
         if tfjs:
@@ -532,6 +540,7 @@ def parse_opt():
     parser.add_argument('--train', action='store_true', help='model.train() mode')
     parser.add_argument('--optimize', action='store_true', help='TorchScript: optimize for mobile')
     parser.add_argument('--int8', action='store_true', help='CoreML/TF INT8 quantization')
+    parser.add_argument('--yuv', action='store_true', help='input image color space,just tflite model')
     parser.add_argument('--dynamic', action='store_true', help='ONNX/TF: dynamic axes')
     parser.add_argument('--simplify', action='store_true', help='ONNX: simplify model')
     parser.add_argument('--opset', type=int, default=12, help='ONNX: opset version')
