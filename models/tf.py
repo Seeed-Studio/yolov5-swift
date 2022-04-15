@@ -408,7 +408,8 @@ def parse_model(d, ch, model, imgsz):  # model_dict, input_channels(3)
 
 
 class TFModel:
-    def __init__(self, cfg='yolov5s.yaml', ch=3, nc=None, model=None, imgsz=(640, 640),nms_head=6):  # model, channels, classes
+    def __init__(self, cfg='yolov5s.yaml', ch=3, nc=None, model=None, imgsz=(640, 640),
+                 nms_head=6):  # model, channels, classes
         super().__init__()
         self.nms_head = nms_head
         if isinstance(cfg, dict):
@@ -531,9 +532,11 @@ class AgnosticNMS(keras.layers.Layer):
         return padded_boxes, padded_scores, padded_classes, valid_detections
 
 
-def representative_dataset_gen(dataset, ncalib=100):
+def representative_dataset_gen(dataset, ncalib=100, imagsz=None, yuv=False):
     # Representative dataset generator for use with converter.representative_dataset, returns a generator of np arrays
     for n, (path, img, im0s, vid_cap, string) in enumerate(dataset):
+        if yuv:
+            img = np.zeros(shape=(4, *imagsz), dtype=np.int8)
         input = np.transpose(img, [1, 2, 0])
         input = np.expand_dims(input, axis=0).astype(np.float32)
         input /= 255
