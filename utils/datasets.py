@@ -226,6 +226,9 @@ class LoadImages:
 
         # Convert
         img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+        # yuv color space
+        if img.shape[1] != img.shape[2]:
+            img = np.zeros(shape=(4, *self.img_size), dtype=np.int8)
         img = np.ascontiguousarray(img)
 
         return path, img, img0, self.cap, s
@@ -392,8 +395,11 @@ class LoadImagesAndLabels(Dataset):
         self.stride = stride
         self.path = path
         self.albumentations = Albumentations() if augment else None
-        if 'normalize' in hyp.keys():
-            self.trans = Compose([Normalize(self.hyp['normalize'][0], self.hyp['normalize'][1])])
+        try:
+            if 'normalize' in hyp.keys():
+                self.trans = Compose([Normalize(self.hyp['normalize'][0], self.hyp['normalize'][1])])
+        except:
+            pass
 
         try:
             f = []  # image files
