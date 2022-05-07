@@ -333,7 +333,7 @@ def export_tflite(keras_model, im, file, int8, data, ncalib, prefix=colorstr('Te
         if int8:
             from models.tf import representative_dataset_gen
             dataset = LoadImages(check_dataset(data)['train'], img_size=imgsz, auto=False)  # representative data
-            converter.representative_dataset = lambda: representative_dataset_gen(dataset, ncalib)
+            converter.representative_dataset = lambda: representative_dataset_gen(dataset, ncalib, imagsz=imgsz,yuv=False )
             converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
             converter.target_spec.supported_types = []
             converter.inference_input_type = tf.int8  # or tf.int8
@@ -532,7 +532,7 @@ def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data', type=str, default=ROOT / 'data/coco128.yaml', help='dataset.yaml path')
     parser.add_argument('--weights', nargs='+', type=str, default=ROOT / 'yolov5s.pt', help='model.pt path(s)')
-    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640, 640], help='image (h, w)')
+    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default= [640,640], help='image (h, w)')
     parser.add_argument('--batch-size', type=int, default=1, help='batch size')
     parser.add_argument('--device', default='cpu', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--half', action='store_true', help='FP16 half-precision export')
