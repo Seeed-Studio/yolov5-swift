@@ -10,6 +10,7 @@ import warnings
 from collections import OrderedDict, namedtuple
 from copy import copy
 from pathlib import Path
+from typing import List
 
 import cv2
 import numpy as np
@@ -17,8 +18,11 @@ import pandas as pd
 import requests
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+import torch.utils.checkpoint as cp
 import yaml
 from PIL import Image
+from torch import Tensor
 from torch.cuda import amp
 
 from utils.datasets import exif_transpose, letterbox
@@ -31,8 +35,8 @@ from utils.torch_utils import copy_attr, time_sync
 class Add(nn.Module):
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1):
         super().__init__()
-        self.m1 = nn.Sequential(Conv(c1,c2,k,s,k//2,g=c1),Conv(c1, c2, 1, 1, p, g))
-        self.m2 = nn.Sequential(Conv(c1,c2,k,s,k//2,g=c1),Conv(c1, c2, 1, 1, p, g))
+        self.m1 = nn.Sequential(Conv(c1, c2, k, s, k // 2, g=c1), Conv(c1, c2, 1, 1, p, g))
+        self.m2 = nn.Sequential(Conv(c1, c2, k, s, k // 2, g=c1), Conv(c1, c2, 1, 1, p, g))
 
     def forward(self, x):
         return self.m1(x[0]) + self.m2(x[1])
@@ -456,7 +460,7 @@ class DetectMultiBackend(nn.Module):
                 y = self.frozen_func(x=self.tf.constant(im)).numpy()
             else:  # Lite or Edge TPU
                 input, output = self.input_details[0], self.output_details[0]
-                int8 = input['dtype'] == np.int8 or input['dtype'] ==np.uint8  # is TFLite quantized uint8 model
+                int8 = input['dtype'] == np.int8 or input['dtype'] == np.uint8  # is TFLite quantized uint8 model
                 # int8=True
                 if int8:
                     scale, zero_point = input['quantization']
