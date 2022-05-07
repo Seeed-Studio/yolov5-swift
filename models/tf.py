@@ -28,7 +28,7 @@ import torch.nn as nn
 from tensorflow import keras
 from tensorflow.keras import backend as K
 
-from models.common import C3, SPP, SPPF, Bottleneck, BottleneckCSP, Concat, Conv, DWConv, Focus, autopad
+from models.common import C3, SPP, SPPF, Bottleneck, BottleneckCSP, Concat, Conv, DWConv, Focus, autopad,Classify
 from models.swift_common import BMConv, ShuffleNetV2
 from models.experimental import CrossConv, MixConv2d, attempt_load
 from models.yolo import Detect
@@ -124,6 +124,38 @@ class TFPad(keras.layers.Layer):
 
 
 class TFConv(keras.layers.Layer):
+    # Standard convolution
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True, w=None):
+        # ch_in, ch_out, weights, kernel, stride, padding, groups
+        super().__init__()
+        #assert g == 1, "TF v2.2 Conv2D does not support 'groups' argument"
+        assert isinstance(k, int), "Convolution with multiple kernels are not allowed."
+        # TensorFlow convolution padding is inconsistent with PyTorch (e.g. k=3 s=2 'SAME' padding)
+        # see https://stackoverflow.com/questions/52975843/comparing-conv2d-with-padding-between-tensorflow-and-pytorch
+
+        conv = keras.layers.Conv2D(
+            c2, k, s, 'SAME' if s == 1 else 'VALID', use_bias=False if hasattr(w, 'bn') else True, groups=g,
+            kernel_initializer=keras.initializers.Constant(w.conv.weight.permute(2, 3, 1, 0).numpy()),
+            bias_initializer='zeros' if hasattr(w, 'bn') else keras.initializers.Constant(w.conv.bias.numpy()))
+        self.conv = conv if s == 1 else keras.Sequential([TFPad(autopad(k, p)), conv])
+        self.bn = TFBN(w.bn) if hasattr(w, 'bn') else tf.identity
+
+        # YOLOv5 activations
+        if isinstance(w.act, nn.LeakyReLU):
+            self.act = (lambda x: keras.activations.relu(x, alpha=0.1)) if act else tf.identity
+        elif isinstance(w.act, nn.Hardswish):
+            self.act = (lambda x: x * tf.nn.relu6(x + 3) * 0.166666667) if act else tf.identity
+        elif isinstance(w.act, (nn.SiLU, SiLU)):
+            self.act = (lambda x: keras.activations.relu(x, alpha=0.1)) if act else tf.identity
+        elif isinstance(w.act, nn.ReLU):
+            self.act = (lambda x: keras.activations.relu(x)) if act else tf.identity
+        else:
+            raise Exception(f'no matching TensorFlow activation found for {w.act}')
+
+    def call(self, inputs):
+        return self.act(self.bn(self.conv(inputs)))
+
+class TFConv_(keras.layers.Layer):
     # Standard convolution
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True, w=None, bias=False):
         # ch_in, ch_out, weights, kernel, stride, padding, groups
@@ -353,6 +385,24 @@ class TFConcat(keras.layers.Layer):
     def call(self, inputs):
         return tf.concat(inputs, self.d)
 
+class TFClassify(keras.layers.Layer):
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1,w=None):
+        super(TFClassify, self).__init__()
+        print(w.conv.weight.shape)
+        self.gap = keras.layers.GlobalAvgPool2D()
+        self.cv = keras.layers.Conv2D(
+                10, k, s, 'SAME' if s == 1 else 'VALID', use_bias=False if hasattr(w, 'bn') else True,
+                kernel_initializer=keras.initializers.Constant(w.conv.weight.permute(2, 3, 1, 0).numpy()),
+                bias_initializer=keras.initializers.Constant(w.conv.bias.numpy()))
+        print(w.conv.weight.shape)
+
+        # self.lin = keras.layers.Dense(10,kernel_initializer=keras.initializers.Constant(w.line.weight.permute(1,0).numpy()),
+        #                               bias_initializer=keras.initializers.Constant(w.line.bias.numpy()))
+
+    def call(self,x):
+        x=self.cv(x)
+        return self.gap(x)
+
 
 def parse_model(d, ch, model, imgsz):  # model_dict, input_channels(3)
     LOGGER.info(f"\n{'':>3}{'from':>18}{'n':>3}{'params':>10}  {'module':<40}{'arguments':<30}")
@@ -384,6 +434,8 @@ def parse_model(d, ch, model, imgsz):  # model_dict, input_channels(3)
             args = [ch[f]]
         elif m is Concat:
             c2 = sum(ch[-1 if x == -1 else x + 1] for x in f)
+        elif m is Classify:
+            args.insert(0,ch[f])
         elif m is Detect:
             args.append([ch[x + 1] for x in f])
             if isinstance(args[1], int):  # number of anchors
@@ -391,7 +443,6 @@ def parse_model(d, ch, model, imgsz):  # model_dict, input_channels(3)
             args.append(imgsz)
         else:
             c2 = ch[f]
-
         tf_m = eval('TF' + m_str.replace('nn.', ''))
         m_ = keras.Sequential([tf_m(*args, w=model.model[i][j]) for j in range(n)]) if n > 1 \
             else tf_m(*args, w=model.model[i])  # module
