@@ -6,9 +6,10 @@ Usage:
     $ python path/to/models/yolo.py --cfg yolov5s.yaml
 """
 
+from copy import deepcopy
+
 import argparse
 import sys
-from copy import deepcopy
 from pathlib import Path
 
 FILE = Path(__file__).resolve()
@@ -20,9 +21,9 @@ if str(ROOT) not in sys.path:
 from models.swift_common import *
 from models.common import *
 from models.experimental import *
-from models.Ghost_Fpn import GhostBlocks,DepthwiseConvModule,SimpleConvHead
+from models.Ghost_Fpn import GhostBlocks, DepthwiseConvModule, SimpleConvHead
 from utils.autoanchor import check_anchor_order
-from utils.general import LOGGER, check_version, check_yaml, make_divisible, print_args
+from utils.general import LOGGER, check_version, check_yaml, print_args
 from utils.plots import feature_visualization
 from utils.torch_utils import fuse_conv_and_bn, initialize_weights, model_info, scale_img, select_device, time_sync
 
@@ -117,6 +118,8 @@ class Model(nn.Module):
             check_anchor_order(m)
             self.stride = m.stride
             self._initialize_biases()  # only run once
+        else:
+            self.stride = [8, 16, 32]
 
         # Init weights, biases
         initialize_weights(self)
@@ -158,7 +161,7 @@ class Model(nn.Module):
                 feature_visualization(x, m.type, m.i, save_dir=visualize)
         return x
 
-    def _forward_nano(self,x, profile=False, visualize=False):
+    def _forward_nano(self, x, profile=False, visualize=False):
         y, dt = [], []  # outputs
         for m in self.model:
             if m.f != -1:  # if not from previous layer
@@ -166,12 +169,12 @@ class Model(nn.Module):
             if profile:
                 self._profile_one_layer(m, x, dt)
 
-            if self.epoch > 10 and hasattr(m,'Star'):
+            if self.epoch > 10 and hasattr(m, 'Star'):
                 y = m([j.detach() for j in x])
                 x = (
                     torch.cat([f.detach(), aux_f], dim=1) for f, aux_f in zip(x, y)
                 )
-            elif self.epoch <10 and hasattr(m,'Star'):
+            elif self.epoch < 10 and hasattr(m, 'Star'):
                 y = m([x])
                 x = (
                     torch.cat([f, aux_f], dim=1) for f, aux_f in zip(x, y)
@@ -291,27 +294,30 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
         n = n_ = max(round(n * gd), 1) if n > 1 else n  # depth gain
         if m in [Conv, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, MixConv2d, Focus, CrossConv,
-                 BottleneckCSP, C3, C3TR, C3SPP, C3Ghost, BMConv, ShuffleNetV2,Add,Shuffle_repeats,GhostBlocks,DepthwiseConvModule,SimpleConvHead]:
+                 BottleneckCSP, C3, C3TR, C3SPP, C3Ghost, BMConv, ShuffleNetV2, Add, Shuffle_repeats, GhostBlocks,
+                 DepthwiseConvModule, SimpleConvHead]:
             if m is Add:
+                c1, c2 = ch[f[0]], args[0]
+            elif m is DepthwiseConvModule:
                 c1, c2 = ch[f[0]], args[0]
             else:
                 c1, c2 = ch[f], args[0]
-            # if c2 != no and m not in []:  # if not output
-            #     c2 = make_divisible(c2 * gw, 8)
+            if c2 != no:  # if not output
+                c2 = make_divisible(c2 * gw, 8)
 
             args = [c1, c2, *args[1:]]
             if m in [BottleneckCSP, C3, C3TR, C3Ghost]:
                 args.insert(2, n)  # number of repeats
                 n = 1
-        elif m is End:            # deepcopy fpn
-            aux=[]
-            for i,mm in enumerate(layers):
-                if isinstance(mm,Star):
-                    f=mm.f                      # get input
+        elif m is End:  # deepcopy fpn
+            aux = []
+            for i, mm in enumerate(layers):
+                if isinstance(mm, Star):
+                    f = mm.f  # get input
                     aux.append(deepcopy(mm))
-                if isinstance(mm,End):
+                if isinstance(mm, End):
                     break
-            m_=nn.Sequential(*aux)
+            m_ = nn.Sequential(*aux)
             t = str(m)[8:-2].replace('__main__.', '')  # module type
             np = sum(x.numel() for x in m_.parameters())  # number params
             m_.i, m_.f, m_.type, m_.np = i, f, t, np  # attach index, 'from' index, type, number params
@@ -321,6 +327,8 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             args = [ch[f]]
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
+        elif m is Classify:
+            args.insert(0, ch[f])
         elif m is Detect:
             args.append([ch[x] for x in f])
             if isinstance(args[1], int):  # number of anchors
