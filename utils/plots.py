@@ -469,3 +469,15 @@ def save_one_box(xyxy, im, file='image.jpg', gain=1.02, pad=10, square=False, BG
         file.parent.mkdir(parents=True, exist_ok=True)  # make directory
         cv2.imwrite(str(increment_path(file).with_suffix('.jpg')), crop)
     return crop
+
+
+def save_one_class(cl, im, path):
+    im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+    im = im if isinstance(im, Image.Image) else Image.fromarray(im)
+    draw = ImageDraw.Draw(im)
+    # path = str(path).replace('.', 'result.')
+
+    draw.text(xy=(20, 20), text=str(cl),spacing=10)
+    im.save(path)
+    # cv2.addText(im, str(cl), org=(10, 10), nameFont='*Times*')
+    # cv2.imwrite(path, im)
