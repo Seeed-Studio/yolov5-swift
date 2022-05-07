@@ -124,6 +124,10 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
         t3 = time_sync()
         dt[1] += t3 - t2
 
+        if len(pred.shape) == 1:
+            print(555)
+            continue
+
         # NMS
         pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
 
@@ -199,6 +203,8 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
 
         # Print time (inference-only)
         LOGGER.info(f'{s}Done. ({t3 - t2:.3f}s)')
+    if len(pred.shape) == 1:
+        exit(0)
 
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
