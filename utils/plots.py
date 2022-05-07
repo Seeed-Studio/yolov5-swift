@@ -3,19 +3,19 @@
 Plotting utils
 """
 
-import math
-import os
 from copy import copy
-from pathlib import Path
 
 import cv2
+import math
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import pandas as pd
 import seaborn as sn
 import torch
 from PIL import Image, ImageDraw, ImageFont
+from pathlib import Path
 
 from utils.general import (CONFIG_DIR, FONT, LOGGER, Timeout, check_font, check_requirements, clip_coords,
                            increment_path, is_ascii, is_chinese, try_except, xywh2xyxy, xyxy2xywh)
@@ -77,7 +77,7 @@ class Annotator:
                                        size=font_size or max(round(sum(self.im.size) / 2 * 0.035), 12))
         else:  # use cv2
             self.im = im
-        self.lw = line_width or max(round(sum(im.shape) / 2 * 0.003), 2)  # line width
+        self.lw = line_width or min(round(sum(im.shape) / 2 * 0.0001), 1)  # line width
 
     def box_label(self, box, label='', color=(128, 128, 128), txt_color=(255, 255, 255)):
         # Add one xyxy box to image with label
@@ -469,3 +469,15 @@ def save_one_box(xyxy, im, file='image.jpg', gain=1.02, pad=10, square=False, BG
         file.parent.mkdir(parents=True, exist_ok=True)  # make directory
         cv2.imwrite(str(increment_path(file).with_suffix('.jpg')), crop)
     return crop
+
+
+def save_one_class(cl, im, path):
+    im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+    im = im if isinstance(im, Image.Image) else Image.fromarray(im)
+    draw = ImageDraw.Draw(im)
+    # path = str(path).replace('.', 'result.')
+
+    draw.text(xy=(20, 20), text=str(cl),spacing=10)
+    im.save(path)
+    # cv2.addText(im, str(cl), org=(10, 10), nameFont='*Times*')
+    # cv2.imwrite(path, im)
