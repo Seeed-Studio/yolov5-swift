@@ -29,7 +29,7 @@ import torch.nn as nn
 from tensorflow import keras
 from tensorflow.keras import backend as K
 
-from models.common import C3, SPP, SPPF, Bottleneck, BottleneckCSP, Concat, Conv, DWConv, Focus, autopad
+from models.common import C3, SPP, SPPF, Bottleneck, BottleneckCSP, Concat, Conv, DWConv, Focus, autopad, Classify
 from models.swift_common import BMConv, ShuffleNetV2
 from models.experimental import CrossConv, MixConv2d, attempt_load
 from models.yolo import Detect
@@ -37,6 +37,22 @@ from utils.activations import SiLU
 from utils.general import LOGGER, make_divisible, print_args
 from tensorflow.keras.layers import Lambda
 
+
+class TFClassify(keras.layers.Layer):
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1,w=None):
+        super(TFClassify, self).__init__()
+        self.gap = keras.layers.GlobalAvgPool2D()
+        self.cv = keras.layers.Conv2D(
+                10, k, s, 'SAME' if s == 1 else 'VALID', use_bias=False if hasattr(w, 'bn') else True,
+                kernel_initializer=keras.initializers.Constant(w.conv.weight.permute(2, 3, 1, 0).numpy()),
+                bias_initializer=keras.initializers.Constant(w.conv.bias.numpy()))
+
+        # self.lin = keras.layers.Dense(10,kernel_initializer=keras.initializers.Constant(w.line.weight.permute(1,0).numpy()),
+        #                               bias_initializer=keras.initializers.Constant(w.line.bias.numpy()))
+
+    def call(self,x):
+        x=self.cv(x)
+        return self.gap(x)
 
 
 class TFBMConv(keras.layers.Layer):
@@ -366,6 +382,8 @@ def parse_model(d, ch, model, imgsz):  # model_dict, input_channels(3)
             args = [ch[f]]
         elif m is Concat:
             c2 = sum(ch[-1 if x == -1 else x + 1] for x in f)
+        elif m is Classify:
+            args.insert(0,ch[f])
         elif m is Detect:
             args.append([ch[x + 1] for x in f])
             if isinstance(args[1], int):  # number of anchors
