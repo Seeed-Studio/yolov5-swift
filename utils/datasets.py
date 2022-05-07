@@ -626,7 +626,7 @@ class LoadImagesAndLabels(Dataset):
 
         # normalize
         if hasattr(self, 'trans'):
-            img = getattr(self,'trans')(torch.from_numpy(img / 255))
+            img = getattr(self, 'trans')(torch.from_numpy(img / 255))
         else:
             img = torch.from_numpy(img)
 
